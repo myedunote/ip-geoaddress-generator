@@ -8,29 +8,52 @@ import {
   Button,
   Flex,
 } from "@radix-ui/themes";
-import { TrashIcon, DownloadIcon } from "@radix-ui/react-icons";
+import {
+  TrashIcon,
+  DownloadIcon,
+  StarIcon,
+  StarFilledIcon,
+} from "@radix-ui/react-icons";
 import type { HistoryRecord } from "../types";
+import { exportHistory, getExportFileName } from "@/services/historyExportService";
 
 interface HistoryListProps {
   history: HistoryRecord[];
-  selectedHistory: string;
+  selectedHistory: string | null;
   onHistoryClick: (record: HistoryRecord) => void;
-  onDeleteHistory: (id: string) => void;
-  onDeleteAllHistory: () => void;
-  onExportJSON: () => void;
+  onDeleteRecord: (id: string) => void;
+  onDeleteAll: () => void;
+  onToggleStarred: (id: string) => void;
 }
 
 export function HistoryList({
   history,
   selectedHistory,
   onHistoryClick,
-  onDeleteHistory,
-  onDeleteAllHistory,
-  onExportJSON,
+  onDeleteRecord,
+  onDeleteAll,
+  onToggleStarred,
 }: Readonly<HistoryListProps>) {
   const handleDeleteHistory = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    onDeleteHistory(id);
+    onDeleteRecord(id);
+  };
+
+  const handleToggleStarred = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    onToggleStarred(id);
+  };
+
+  const handleExportJSON = () => {
+    const blob = exportHistory(history);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = getExportFileName();
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -95,6 +118,14 @@ export function HistoryList({
                     </Flex>
                     <IconButton
                       size="1"
+                      color="amber"
+                      variant="ghost"
+                      onClick={(e) => handleToggleStarred(record.id, e)}
+                    >
+                      {record.isStarred ? <StarFilledIcon /> : <StarIcon />}
+                    </IconButton>
+                    <IconButton
+                      size="1"
                       color="red"
                       variant="ghost"
                       onClick={(e) => handleDeleteHistory(record.id, e)}
@@ -111,16 +142,11 @@ export function HistoryList({
           <>
             <Separator size="4" my="3" />
             <Flex justify="between" gap="3">
-              <Button size="2" variant="soft" onClick={onExportJSON}>
+              <Button size="2" variant="soft" onClick={handleExportJSON}>
                 <Text>导出JSON</Text>
                 <DownloadIcon />
               </Button>
-              <Button
-                size="2"
-                color="red"
-                variant="soft"
-                onClick={onDeleteAllHistory}
-              >
+              <Button size="2" color="red" variant="soft" onClick={onDeleteAll}>
                 <Text>删除全部</Text>
                 <TrashIcon />
               </Button>

@@ -4,9 +4,13 @@
 
 </div>
 
+<div align="center">
+
 # 基于IP的真实地址生成器 🌍
 
-这是一个基于Web的应用程序，可以根据IP地址生成真实的随机地址信息。它使用多个API来获取位置数据和随机用户信息，为用户提供一个完整的虚拟身份。
+</div>
+
+这是一个基于Web的应用程序，可以根据IP地址生成真实的随机地址信息。它使用多个API来获取位置数据和随机用户信息，为您提供一个完整的虚拟身份。
 
 ## 访问地址
 
@@ -29,7 +33,7 @@ https://ip-geoaddress-generator.pages.dev/
 - 在Google地图上显示生成的地址
 - 一键复制各项信息
 - 保存、搜索和删除地址
-- 导出保存的地址为TXT文件
+- 导出保存的地址为JSON文件
 
 ### 用户体验
 - 响应式设计，适配多种设备
@@ -77,7 +81,9 @@ docker run -p 3000:3000 guoogaii/ip-geoaddress-generator:latest
 
 感谢LinuxDo论坛的[F-droid](https://linux.do/u/F-droid/summary)曾经提供的[Docker部署教程以及镜像](https://linux.do/t/topic/234815)
 
-感谢LinuxDo论坛的[HirasawaYui](https://linux.do/u/HirasawaYui/summary)提供的GitHub Action
+感谢LinuxDo论坛的[HirasawaYui](https://linux.do/u/HirasawaYui/summary)曾经提供的GitHub Action
+
+感谢[yuyins](https://github.com/houzixiashanxiedaima)提供的GitHub Action
 
 感谢以下API服务的支持：
 
@@ -94,7 +100,3 @@ docker run -p 3000:3000 guoogaii/ip-geoaddress-generator:latest
 ## 许可证
 
 [MIT](https://choosealicense.com/licenses/mit/)
-
-## 支持我
-
-<img src="支付宝收款码.png" alt="支付宝收款码" style="width: 50%; max-width: 300px;"/>

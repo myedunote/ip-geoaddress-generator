@@ -1,266 +1,145 @@
 "use client";
 
-import { useState, useEffect, useContext, useCallback } from "react";
-import { WFDService } from "./services/addressService";
-import type {
-  User,
-  Address,
-  HistoryRecord,
-  TempMailMessage,
-  MailEvent,
-} from "./types";
-import {
-  Card,
-  Text,
-  Heading,
-  Flex,
-  Box,
-  Code,
-  TextField,
-  Button,
-  Skeleton,
-  SegmentedControl,
-  Separator,
-} from "@radix-ui/themes";
-import { ReloadIcon } from "@radix-ui/react-icons";
-import { ThemeContext } from "./theme-provider";
-import { UserInfo } from "./components/UserInfo";
-import { AddressInfo } from "./components/AddressInfo";
-import { AddressSelector } from "./components/AddressSelector";
+import { useEffect, useRef, useState } from "react";
+
+import useIP from "@/hooks/useIP";
+import useUser from "@/hooks/useUser";
+import useCoordinates from "@/hooks/useCoordinates";
+import useAddress from "@/hooks/useAddress";
+import useHistory from "@/hooks/useHistory";
+import useMail from "@/hooks/useMail";
+
+import type { HistoryRecord, TempMailMessage } from "@/app/types";
+
+import { Text, Flex, Box } from "@radix-ui/themes";
 import { InboxDialog } from "./components/InboxDialog";
-import { HistoryList } from "./components/HistoryList";
 import { TopBar } from "./components/TopBar";
-import Mailjs from "@cemalgnlts/mailjs";
 import { Toast } from "./components/Toast";
+import { Header } from "./components/Header";
+import { LeftCard } from "./components/LeftCard";
+import { RightCard } from "./components/RightCard";
 
-const generateId = () =>
-  `history-${Date.now()}-${Math.random().toString(36).substring(2)}`;
+import { effect } from "@preact/signals-react";
+import { addressService } from "@/services/addressService";
 
-interface UseAddressDataReturn {
-  ip: string;
-  setIp: (ip: string) => void;
-  loading: boolean;
-  setLoading: (loading: boolean) => void;
-  error: string;
-  setError: (error: string) => void;
-  user: User | null;
-  address: Address | null;
-  setAddress: (address: Address | null) => void;
-  generateAddressData: (
-    inputIp?: string
-  ) => Promise<{ ip: string; address: Address; user: User } | null>;
-  setUser: React.Dispatch<React.SetStateAction<User | null>>;
-}
-
-const useAddressData = (): UseAddressDataReturn => {
-  const [ip, setIp] = useState<string>("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string>("");
-  const [user, setUser] = useState<User | null>(null);
-  const [address, setAddress] = useState<Address | null>(null);
-
-  // 核心方法：获取地址信息
-  const generateAddressData = useCallback(async (inputIp?: string) => {
-    setLoading(true);
-    setError("");
-    try {
-      const service = new WFDService();
-      let newIp: string;
-      let coords;
-
-      if (inputIp) {
-        // 使用指定的IP
-        newIp = inputIp;
-        coords = await service.getIPCoordinates(inputIp);
-      } else {
-        // 获取当前IP
-        const result = await service.getCurrentIP();
-        newIp = result.ip;
-        coords = await service.getIPCoordinates(newIp);
-      }
-
-      // 获取地址和用户信息
-      const [addressData, userResult] = await Promise.all([
-        service.getRandomAddress(coords.latitude, coords.longitude),
-        service.getRandomUser("US"),
-      ]);
-
-      // 添加经纬度到地址信息中
-      const addressWithCoords = {
-        ...addressData,
-        latitude: coords.latitude,
-        longitude: coords.longitude,
-      };
-
-      const newUser = userResult.results[0];
-
-      // 更新状态
-      setIp(newIp);
-      setAddress(addressWithCoords);
-      setUser(newUser);
-
-      // 返回生成的数据
-      return {
-        ip: newIp,
-        address: addressWithCoords,
-        user: newUser,
-      };
-    } catch (err) {
-      setError(inputIp ? "获取地址失败" : "获取 IP 地址失败");
-      console.error(err);
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  return {
-    ip,
-    setIp,
-    loading,
-    setLoading,
-    error,
-    setError,
-    user,
-    address,
-    setAddress,
-    generateAddressData,
-    setUser,
-  };
-};
+import { userSignal } from "@/signals/userSignal";
+import { detectedIpSignal, queryIpSignal } from "@/signals/ipSignal";
+import { addressSignal, coordinatesSignal } from "@/signals/addressSignal";
 
 export default function Home() {
-  const { theme, setTheme } = useContext(ThemeContext);
+  const queryIp = queryIpSignal.value;
+  const {
+    isLoading: coordinatesLoading,
+    // error: coordinatesError,
+    data: coordinates,
+  } = useCoordinates(queryIp);
+  const coordinatesForAddress =
+    coordinatesLoading || !coordinates ? null : coordinates;
+  const {
+    isLoading: addressLoading,
+    error: addressError,
+    refetch: fetchAddress,
+    data: addressData,
+    dataUpdatedAt: addressUpdatedAt,
+  } = useAddress(coordinatesForAddress);
+  const { isLoading: ipLoading, error: ipError } = useIP();
+  const {
+    isLoading: userLoading,
+    error: userError,
+    refetch: fetchUser,
+    data: userData,
+    dataUpdatedAt: userUpdatedAt,
+  } = useUser("US");
+
   const [inputIp, setInputIp] = useState<string>("");
   const [inputMode, setInputMode] = useState<string>("ip");
-  const [selectedHistory, setSelectedHistory] = useState<string>("");
-  const [history, setHistory] = useState<HistoryRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [pendingIpGeneration, setPendingIpGeneration] = useState<{
+    ip: string;
+    requestedAt: number;
+  } | null>(null);
   const {
-    ip,
-    setIp,
-    loading: addressLoading,
-    error,
-    setError,
-    user,
-    address,
-    setAddress,
-    generateAddressData,
-    setUser,
-    setLoading: setAddressLoading,
-  } = useAddressData();
-  const [tempEmail, setTempEmail] = useState<string>("");
-  const [emailLoading, setEmailLoading] = useState(true);
-  const [messages, setMessages] = useState<TempMailMessage[]>([]);
-  const [mailjs] = useState(new Mailjs());
+    history,
+    selectedHistory,
+    setSelectedHistory,
+    addHistoryRecord,
+    deleteHistoryRecord,
+    deleteAllHistory,
+    toggleStarred,
+  } = useHistory();
+  const {
+    tempEmail,
+    emailLoading,
+    messages,
+    selectedMessage,
+    toastMessage,
+    setSelectedMessage,
+    setToastMessage,
+    handleMessageClick,
+  } = useMail();
   const [inboxOpen, setInboxOpen] = useState(false);
-  const [selectedMessage, setSelectedMessage] =
-    useState<TempMailMessage | null>(null);
-  const [toastMessage, setToastMessage] = useState<TempMailMessage | null>(
-    null
-  );
-
   // 计算总的加载状态
-  const loading = addressLoading || emailLoading;
+  const isLoading =
+    loading ||
+    emailLoading ||
+    addressLoading ||
+    ipLoading ||
+    userLoading ||
+    coordinatesLoading;
 
-  // 从 localStorage 加载历史记录
-  useEffect(() => {
-    const savedHistory = localStorage.getItem("addressHistory");
-    if (savedHistory) {
-      try {
-        const parsedHistory = JSON.parse(savedHistory);
-        // 确保所有记录都有有效的 id
-        const validHistory = parsedHistory.map((record: HistoryRecord) => ({
-          ...record,
-          id:
-            record.id && record.id.startsWith("history-")
-              ? record.id
-              : generateId(),
-        }));
-        setHistory(validHistory);
-      } catch (e) {
-        console.error("Failed to parse history:", e);
-        setHistory([]);
-      }
+  const hasAddedInitialHistory = useRef(false);
+
+  // 使用 signal 的 effect 监听数据变化
+  effect(() => {
+    if (
+      !hasAddedInitialHistory.current &&
+      !ipLoading &&
+      !userLoading &&
+      !addressLoading &&
+      detectedIpSignal.value &&
+      userSignal.value &&
+      addressSignal.value
+    ) {
+      addHistoryRecord({
+        user: userSignal.value,
+        address: addressSignal.value,
+        ip: detectedIpSignal.value,
+      });
+      hasAddedInitialHistory.current = true;
     }
-  }, []);
-
-  // 初始化数据并添加到历史记录
-  useEffect(() => {
-    const initializeData = async () => {
-      const result = await generateAddressData();
-      if (result) {
-        const timestamp = Date.now();
-        const newRecord: HistoryRecord = {
-          id: `history-${timestamp}-${Math.random().toString(36).substring(2)}`,
-          user: result.user,
-          address: result.address,
-          ip: result.ip,
-          timestamp: timestamp,
-        };
-        setHistory((prev) => {
-          // 检查是否有重复的 id
-          const isDuplicate = prev.some((record) => record.id === newRecord.id);
-          if (isDuplicate) {
-            newRecord.id = `history-${timestamp}-${Math.random()
-              .toString(36)
-              .substring(2)}`;
-          }
-          return [newRecord, ...prev.slice(0, 19)];
-        });
-        setSelectedHistory(newRecord.id);
-      }
-    };
-    initializeData();
-  }, [generateAddressData]);
-
-  // 保存历史记录到 localStorage
-  useEffect(() => {
-    localStorage.setItem("addressHistory", JSON.stringify(history));
-  }, [history]);
+  });
 
   useEffect(() => {
-    const createTempEmail = async () => {
-      setEmailLoading(true);
-      try {
-        const account = await mailjs.createOneAccount();
-        if (account.status) {
-          setTempEmail(account.data.username);
-          await mailjs.login(account.data.username, account.data.password);
-          mailjs.on("arrive", async (message: MailEvent) => {
-            const fullMessage = await mailjs.getMessage(message.id);
-            if (fullMessage.status) {
-              const source = await mailjs.getSource(message.id);
-              const messageData = {
-                ...fullMessage.data,
-                source: {
-                  id: source.data.id,
-                  data: source.data.data,
-                  downloadUrl: source.data.downloadUrl,
-                },
-              } as TempMailMessage;
-              setMessages((prev) => [...prev, messageData]);
-              setToastMessage(messageData);
-            }
-          });
-        }
-      } catch (error) {
-        console.error("创建临时邮箱失败:", error);
-      } finally {
-        setEmailLoading(false);
-      }
-    };
+    if (!pendingIpGeneration) return;
+    if (inputMode !== "ip") return;
+    if (coordinatesLoading || addressLoading || userLoading) return;
+    if (!addressData || !userData) return;
+    if (addressUpdatedAt < pendingIpGeneration.requestedAt) return;
+    if (userUpdatedAt < pendingIpGeneration.requestedAt) return;
 
-    if (!tempEmail) {
-      createTempEmail();
-    }
-
-    return () => {
-      mailjs.off();
-    };
-  }, []);
+    addHistoryRecord({
+      user: userData,
+      address: addressData,
+      ip: pendingIpGeneration.ip,
+    });
+    setPendingIpGeneration(null);
+  }, [
+    pendingIpGeneration,
+    inputMode,
+    coordinatesLoading,
+    addressLoading,
+    userLoading,
+    addressData,
+    userData,
+    addressUpdatedAt,
+    userUpdatedAt,
+    addHistoryRecord,
+  ]);
 
   const handleGenerateAddress = async () => {
-    setAddressLoading(true);
+    setLoading(true);
+    setError("");
     try {
       if (inputMode === "address") {
         if (!inputIp) {
@@ -269,32 +148,21 @@ export default function Home() {
         }
         const [country, state, city] = inputIp.split("|");
         try {
-          const service = new WFDService();
-          const coords = await service.getCoordinates(country, state, city);
-          const [addressData, userResult] = await Promise.all([
-            service.getRandomAddress(Number(coords.lat), Number(coords.lon)),
-            service.getRandomUser("US"),
-          ]);
-
-          const addressWithCoords = {
-            ...addressData,
-            latitude: Number(coords.lat),
-            longitude: Number(coords.lon),
-          };
-
-          const newUser = userResult.results[0];
-          setAddress(addressWithCoords);
-          setUser(newUser);
-
-          const newRecord: HistoryRecord = {
-            id: generateId(),
-            user: newUser,
-            address: addressWithCoords,
-            ip: inputIp,
-            timestamp: new Date().getTime(),
-          };
-          setHistory((prev) => [newRecord, ...prev.slice(0, 19)]);
-          setSelectedHistory(newRecord.id);
+          const coordinates = await addressService.getCoordinates(
+            country,
+            state,
+            city
+          );
+          coordinatesSignal.value = coordinates;
+          await fetchUser();
+          await fetchAddress();
+          if (userSignal.value && addressSignal.value && detectedIpSignal.value) {
+            addHistoryRecord({
+              user: userSignal.value,
+              address: addressSignal.value,
+              ip: detectedIpSignal.value,
+            });
+          }
         } catch (err) {
           setError("获取地址失败");
           console.error(err);
@@ -302,119 +170,32 @@ export default function Home() {
         return;
       }
 
-      const result = await generateAddressData(inputIp || undefined);
+      // IP 模式下的处理
+      const targetIp = inputIp || detectedIpSignal.value;
+      if (!targetIp) {
+        setError("请输入IP");
+        return;
+      }
 
-      if (result) {
-        const newRecord: HistoryRecord = {
-          id: generateId(),
-          user: result.user,
-          address: result.address,
-          ip: result.ip,
-          timestamp: new Date().getTime(),
-        };
-        setHistory((prev) => [newRecord, ...prev.slice(0, 19)]);
-        setSelectedHistory(newRecord.id);
+      queryIpSignal.value = targetIp;
+      setPendingIpGeneration({ ip: targetIp, requestedAt: Date.now() });
+
+      try {
+        await fetchUser();
+      } catch (err) {
+        setError("获取用户信息失败");
+        console.error(err);
       }
     } finally {
-      setAddressLoading(false);
+      setLoading(false);
     }
   };
 
-  const handleDeleteAllHistory = () => {
-    setHistory([]);
-    setSelectedHistory("");
-  };
-
-  // 处理历史记录点击
   const handleHistoryClick = (record: HistoryRecord) => {
     setSelectedHistory(record.id);
-    setUser(record.user);
-    setAddress(record.address);
-    if (!record.ip.includes("|")) {
-      setIp(record.ip);
-      // 如果地址中没有经纬度信息，则重新获取
-      if (!record.address.latitude || !record.address.longitude) {
-        const fetchCoordinates = async () => {
-          try {
-            const service = new WFDService();
-            const coords = await service.getIPCoordinates(record.ip);
-            const updatedAddress: Address = {
-              ...record.address,
-              latitude: coords.latitude,
-              longitude: coords.longitude,
-            };
-            setAddress(updatedAddress);
-          } catch (error) {
-            console.error("获取坐标失败:", error);
-          }
-        };
-        fetchCoordinates();
-      }
-    }
-  };
-
-  const handleExportJSON = () => {
-    const service = new WFDService();
-    const blob = service.exportHistory(history);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = service.getExportFileName();
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  const backgroundStyle = {
-    backgroundImage:
-      theme === "dark"
-        ? `linear-gradient(
-          45deg,
-          rgba(255, 255, 255, 0) 0%,
-          rgba(255, 255, 255, 0) 49%,
-          rgba(255, 255, 255, 0.05) 49%,
-          rgba(255, 255, 255, 0.05) 51%,
-          rgba(255, 255, 255, 0) 51%,
-          rgba(255, 255, 255, 0) 100%
-        )`
-        : `linear-gradient(
-          45deg,
-          rgba(0, 0, 0, 0) 0%,
-          rgba(0, 0, 0, 0) 49%,
-          rgba(0, 0, 0, 0.08) 49%,
-          rgba(0, 0, 0, 0.08) 51%,
-          rgba(0, 0, 0, 0) 51%,
-          rgba(0, 0, 0, 0) 100%
-        )`,
-    backgroundSize: "30px 30px",
-  };
-
-  const handleMessageClick = async (msg: TempMailMessage) => {
-    if (!msg.source) {
-      try {
-        const fullMessage = await mailjs.getMessage(msg.id);
-        if (fullMessage.status) {
-          const source = await mailjs.getSource(msg.id);
-          const messageData = {
-            ...fullMessage.data,
-            source: {
-              id: source.data.id,
-              data: source.data.data,
-              downloadUrl: source.data.downloadUrl,
-            },
-          } as TempMailMessage;
-          setMessages((prev) =>
-            prev.map((m) => (m.id === msg.id ? messageData : m))
-          );
-          setSelectedMessage(messageData);
-        }
-      } catch (error) {
-        console.error("获取邮件内容失败:", error);
-      }
-    } else {
-      setSelectedMessage(msg);
-    }
+    // 直接使用历史记录中的数据，不触发任何请求
+    addressSignal.value = record.address;
+    userSignal.value = record.user;
   };
 
   const handleToastClick = (message: TempMailMessage) => {
@@ -442,19 +223,13 @@ export default function Home() {
           paddingTop: "60px", // 为固定导航栏留出空间
         }}
       >
-        <Heading size="8">真实地址生成器 🌍</Heading>
-        <Flex gap="2" align="center">
-          <Text size="4" color="gray">
-            您的当前 IP 地址为：
-          </Text>
-          {loading ? (
-            <Skeleton>
-              <Code size="4">loading...</Code>
-            </Skeleton>
-          ) : (
-            <Code size="4">{ip}</Code>
-          )}
-        </Flex>
+        <Header
+          ipLoading={ipLoading}
+          ipError={ipError}
+          detectedIp={detectedIpSignal.value}
+        />
+
+        {userError && <Text color="red">获取用户信息失败</Text>}
 
         <Flex
           gap="4"
@@ -462,86 +237,30 @@ export default function Home() {
           className="flex flex-col md:flex-row"
         >
           {/* 左侧卡片 */}
-          <Card size="4" style={{ flex: 2 }} className="hidden md:flex">
-            <Flex direction="column" gap="3" style={{ flex: 1 }}>
-              <Box>
-                <Flex gap="3">
-                  <SegmentedControl.Root
-                    defaultValue="ip"
-                    onValueChange={(value) => {
-                      setInputMode(value);
-                      setInputIp(""); // 清空输入框内容
-                    }}
-                    size="2"
-                  >
-                    <SegmentedControl.Item value="ip">IP</SegmentedControl.Item>
-                    <SegmentedControl.Item value="address">
-                      地址
-                    </SegmentedControl.Item>
-                  </SegmentedControl.Root>
-                  {inputMode === "address" ? (
-                    <Flex style={{ flex: 1 }}>
-                      <AddressSelector onSelect={setInputIp}>
-                        <TextField.Root
-                          size="2"
-                          placeholder="请选择地址"
-                          value={inputIp}
-                          onChange={(e) => setInputIp(e.target.value)}
-                          style={{ flex: 1 }}
-                        />
-                      </AddressSelector>
-                    </Flex>
-                  ) : (
-                    <TextField.Root
-                      size="2"
-                      placeholder={ip}
-                      value={inputIp}
-                      onChange={(e) => setInputIp(e.target.value)}
-                      style={{ flex: 1 }}
-                    />
-                  )}
-                  <Button
-                    size="2"
-                    onClick={handleGenerateAddress}
-                    disabled={loading}
-                  >
-                    <Text>{loading ? "生成中..." : "生成地址"}</Text>
-                    <ReloadIcon className={loading ? "animate-spin" : ""} />
-                  </Button>
-                </Flex>
-              </Box>
-              <Separator size="4" />
-              <HistoryList
-                history={history}
-                selectedHistory={selectedHistory}
-                onHistoryClick={handleHistoryClick}
-                onDeleteHistory={(id) => {
-                  setHistory((prev) =>
-                    prev.filter((record) => record.id !== id)
-                  );
-                  if (selectedHistory === id) {
-                    setSelectedHistory("");
-                  }
-                }}
-                onDeleteAllHistory={handleDeleteAllHistory}
-                onExportJSON={handleExportJSON}
-              />
-            </Flex>
-          </Card>
+          <LeftCard
+            inputIp={inputIp}
+            inputMode={inputMode}
+            isLoading={isLoading}
+            history={history}
+            selectedHistory={selectedHistory}
+            setInputIp={setInputIp}
+            setInputMode={setInputMode}
+            handleGenerateAddress={handleGenerateAddress}
+            onHistoryClick={handleHistoryClick}
+            onDeleteRecord={deleteHistoryRecord}
+            onDeleteAll={deleteAllHistory}
+            onToggleStarred={toggleStarred}
+          />
 
           {/* 右侧卡片 */}
-          <Card size="4" style={{ flex: 1 }} className="flex-1 w-full">
-            <Flex direction="column" gap="4">
-              {error && <Text color="red">{error}</Text>}
-              <Box style={{ width: "100%" }}>
-                <Flex direction="column" gap="3">
-                  <UserInfo user={user} loading={loading} email={tempEmail} />
-                  <Separator size="4" />
-                  <AddressInfo address={address} loading={loading} />
-                </Flex>
-              </Box>
-            </Flex>
-          </Card>
+          <RightCard
+            userSignal={userSignal}
+            addressSignal={addressSignal}
+            isLoading={isLoading}
+            error={error}
+            addressError={addressError}
+            tempEmail={tempEmail}
+          />
         </Flex>
         <InboxDialog
           open={inboxOpen}
