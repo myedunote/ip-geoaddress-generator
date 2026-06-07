@@ -205,11 +205,7 @@ export default function Home() {
 
   return (
     <Box>
-      <TopBar
-        theme={theme}
-        setTheme={setTheme}
-        onInboxOpen={() => setInboxOpen(true)}
-      />
+      <TopBar onInboxOpen={() => setInboxOpen(true)} />
 
       {/* 主要内容 */}
       <Flex
@@ -219,7 +215,6 @@ export default function Home() {
         justify="center"
         gap="4"
         style={{
-          ...backgroundStyle,
           paddingTop: "60px", // 为固定导航栏留出空间
         }}
       >

@@ -1,3 +1,5 @@
+"use client";
+
 import { IconButton, Flex } from "@radix-ui/themes";
 import {
   EnvelopeClosedIcon,
@@ -5,14 +7,16 @@ import {
   MoonIcon,
   SunIcon,
 } from "@radix-ui/react-icons";
+import { useTheme } from "next-themes";
 
 interface TopBarProps {
-  theme: "light" | "dark";
-  setTheme: (theme: "light" | "dark") => void;
   onInboxOpen: () => void;
 }
 
-export function TopBar({ theme, setTheme, onInboxOpen }: TopBarProps) {
+export function TopBar({ onInboxOpen }: TopBarProps) {
+  const { resolvedTheme, setTheme } = useTheme();
+  const isLightTheme = resolvedTheme !== "dark";
+
   return (
     <Flex
       justify="end"
@@ -52,10 +56,10 @@ export function TopBar({ theme, setTheme, onInboxOpen }: TopBarProps) {
         <IconButton
           size="4"
           variant="ghost"
-          onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+          onClick={() => setTheme(isLightTheme ? "dark" : "light")}
           aria-label="切换主题"
         >
-          {theme === "light" ? (
+          {isLightTheme ? (
             <MoonIcon width="24" height="24" />
           ) : (
             <SunIcon width="24" height="24" />
